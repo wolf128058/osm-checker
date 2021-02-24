@@ -64,7 +64,7 @@ def check_facebookcontact(elementtype, xml_root):
     list_subdomains2kill = ['m', 'web', 'b-m', 'da-dk', 'de-de', 'el-gr', 'en-gb',
                             'es-es', 'fr-fr', 'he-il', 'hr-hr', 'is-is', 'it-it', 'nl-nl', 'pl-pl', 'si-si']
     bar_max = len(xml_root.findall(elementtype))
-    if int(ARGS.limit) > 0:
+    if int(ARGS.limit) > 0 and int(ARGS.limit) < len(xml_root.findall('relation')) + len(xml_root.findall('way')) + len(xml_root.findall('node')):
         bar_max = int(ARGS.limit)
 
     with progressbar.ProgressBar(max_value=bar_max, redirect_stdout=True) as p_bar:
