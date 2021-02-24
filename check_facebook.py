@@ -10,6 +10,19 @@ import urllib
 import sys
 import requests
 import progressbar
+from progressbar import Bar, ETA, AdaptiveETA, Percentage
+
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:85.0) Gecko/20100101 Firefox/85.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'de,en-US;q=0.7,en;q=0.3',
+    'Content-Type': 'application/json;charset=utf-8',
+    'Connection': 'keep-alive',
+    'DNT': '1',
+    'Sec-GPC': '1',
+    'Upgrade-Insecure-Requests': '1'
+}
+
 
 PARSER = argparse.ArgumentParser(
     description='Check osm-file for errors with facebook-entries')
