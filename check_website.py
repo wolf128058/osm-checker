@@ -9,6 +9,7 @@ import urllib
 import sys
 import requests
 import progressbar
+from progressbar import Bar, ETA, AdaptiveETA, Percentage
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:85.0) Gecko/20100101 Firefox/85.0',
@@ -61,107 +62,101 @@ LIMIT_COUNTER = 0
 def check_website(elementtype, xml_root):
     global LIMIT_COUNTER, ARGS
     bar_max = len(xml_root.findall(elementtype))
-    if int(ARGS.limit) > 0:
+    if int(ARGS.limit) > 0 and int(ARGS.limit) < len(xml_root.findall(elementtype)):
         bar_max = int(ARGS.limit)
 
-    with progressbar.ProgressBar(max_value=bar_max, redirect_stdout=True) as p_bar:
-        for element in xml_root.findall(elementtype):
-            element_changed = False
+    widgets = [Percentage(), ' ', Bar(), ' ', ETA(), ' ', AdaptiveETA()]
+    p_bar = progressbar.ProgressBar(widgets=widgets, maxval=bar_max)
+    p_bar.start()
+    for element in xml_root.findall(elementtype):
+        element_changed = False
 
-            # save file and exit if limit is reached
-            if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
-                with open(ARGS.export, 'w') as f:
-                    f.write(ET.tostring(xml_root, encoding='utf8').decode('utf8'))
-                break
+        # save file and exit if limit is reached
+        if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
+            with open(ARGS.export, 'w') as f:
+                f.write(ET.tostring(xml_root, encoding='utf8').decode('utf8'))
+            break
 
-            # iterate throug elements
-            for tag in element.findall('tag'):
+        # iterate throug elements
+        for tag in element.findall('tag'):
+            initial_url = ''
 
-                # if we have found a website-tag with facebook in the url we move it to the contact:facebook-tag
-                if tag.attrib['k'] == 'website' and tag.attrib['v'].find('http') != 1:
-                    print(tag.attrib['v'])
-                    initial_url = tag.attrib['v']
+            # if we have found a website-tag with facebook in the url we move it to the contact:facebook-tag
+            if tag.attrib['k'] == 'website' and tag.attrib['v'].find('http') != 1:
+                initial_url = tag.attrib['v']
 
-                    # test adding https:
-                    https_status = False
-                    try:
-                        HEADERS['Origin'] = 'https://' + initial_url
-                        HEADERS['Referer'] = 'https://' + initial_url
-                        https_status = requests.get(
-                            'https://' + initial_url, headers=HEADERS).status_code
-                    except:
-                        http_status = False
+                # test adding https:
+                https_status = False
+                try:
+                    HEADERS['Origin'] = 'https://' + initial_url
+                    HEADERS['Referer'] = 'https://' + initial_url
+                    https_status = requests.get(
+                        'https://' + initial_url, headers=HEADERS).status_code
+                except:
+                    http_status = False
 
-                    try:
-                        HEADERS['Origin'] = 'https://' + initial_url
-                        HEADERS['Referer'] = 'https://' + initial_url
-                        http_status = requests.get(
-                            'http://' + initial_url, headers=HEADERS).status_code
-                    except:
-                        http_status = False
+                try:
+                    HEADERS['Origin'] = 'https://' + initial_url
+                    HEADERS['Referer'] = 'https://' + initial_url
+                    http_status = requests.get(
+                        'http://' + initial_url, headers=HEADERS).status_code
+                except:
+                    http_status = False
 
-                    if https_status == 200:
-                        tag.attrib['v'] = 'https://' + initial_url
-                    elif http_status == 200:
-                        tag.attrib['v'] = 'http://' + initial_url
+                if https_status == 200:
+                    tag.attrib['v'] = 'https://' + initial_url
+                elif http_status == 200:
+                    tag.attrib['v'] = 'http://' + initial_url
 
-                    if int(https_status) > 200:
-                        print('https-status: https://' +
-                              initial_url + ' ' + str(https_status))
-                    if int(http_status) > 200:
-                        print('http-status: http://' +
-                              initial_url + ' ' + str(http_status))
+                if not https_status and not http_status:
+                    continue
 
-                    if not https_status and not http_status:
-                        continue
+                # check for redirection
+                HEADERS['Origin'] = tag.attrib['v']
+                HEADERS['Referer'] = tag.attrib['v']
+                r = requests.get(tag.attrib['v'], headers=HEADERS)
+                if r.url != tag.attrib['v']:
+                    redirection = r.url
+                    if redirection.endswith('/'):
+                        redirection = redirection[:-1]
+                    # split url for analysing it later
+                    r_parts = urllib.parse.urlparse(redirection)
 
-                    # check for redirection
-                    HEADERS['Origin'] = tag.attrib['v']
-                    HEADERS['Referer'] = tag.attrib['v']
-                    r = requests.get(tag.attrib['v'], headers=HEADERS)
-                    if r.url != tag.attrib['v']:
-                        redirection = r.url
-                        if redirection.endswith('/'):
-                            redirection = redirection[:-1]
-                        # split url for analysing it later
-                        r_parts = urllib.parse.urlparse(redirection)
+                    # if new url is just a scheme and a domain we take it as replacement
+                    if redirection == r_parts.scheme + '://' + r_parts.netloc:
+                        tag.attrib['v'] = r_parts.scheme + \
+                            '://' + r_parts.netloc
 
-                        # if new url is just a scheme and a domain we take it as replacement
-                        if redirection == r_parts.scheme + '://' + r_parts.netloc:
-                            tag.attrib['v'] = r_parts.scheme + \
-                                '://' + r_parts.netloc
+                if tag.attrib['v'].endswith('/'):
+                    tag.attrib['v'] = tag.attrib['v'][:-1]
 
-                    if tag.attrib['v'].endswith('/'):
-                        tag.attrib['v'] = tag.attrib['v'][:-1]
+                if tag.attrib['v'] != initial_url:
+                    element_changed = True
 
-                    if tag.attrib['v'] != initial_url:
-                        element_changed = True
-                        print('>>> ' + tag.attrib['v'])
 
-            if element_changed:
-                if LIMIT_COUNTER + 1 > int(ARGS.offset) or (LIMIT_COUNTER == 0 and int(ARGS.offset) == 0):
-                    # set modify-tag if element is in range
-                    element.attrib['action'] = 'modify'
-                    empty_tags = element.findall("tag[@v='']")
-                    if empty_tags:
-                        for empty_tag in empty_tags:
-                            element.remove(empty_tag)
-                    RESULT_ROOT.append(element)
-                LIMIT_COUNTER += 1
+                sys.stdout.write('[' + str(LIMIT_COUNTER)+ '/' + str(bar_max) + '] ' + initial_url + ' >>> ' + tag.attrib['v'] + " \n")
                 p_bar.update(LIMIT_COUNTER)
+
+        if element_changed:
+            if LIMIT_COUNTER + 1 > int(ARGS.offset) or (LIMIT_COUNTER == 0 and int(ARGS.offset) == 0):
+                # set modify-tag if element is in range
+                element.attrib['action'] = 'modify'
+                empty_tags = element.findall("tag[@v='']")
+                if empty_tags:
+                    for empty_tag in empty_tags:
+                        element.remove(empty_tag)
+                RESULT_ROOT.append(element)
+            LIMIT_COUNTER += 1
+            if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
+                p_bar.finish()
     # end
-
-
-print(str(len(XML_ROOT.findall('relation'))) + ' relations found.')
-if not ARGS.dryrun:
+if ARGS.dryrun:
+    print(str(len(XML_ROOT.findall('relation'))) + ' relations found.')
+    print(str(len(XML_ROOT.findall('way'))) + ' ways found.')
+    print(str(len(XML_ROOT.findall('node'))) + ' nodes found.')
+else:
     check_website('relation', XML_ROOT)
-
-print(str(len(XML_ROOT.findall('way'))) + ' ways found.')
-if not ARGS.dryrun:
     check_website('way', XML_ROOT)
-
-print(str(len(XML_ROOT.findall('node'))) + ' nodes found.')
-if not ARGS.dryrun:
     check_website('node', XML_ROOT)
     with open(ARGS.export, 'w') as f:
         f.write(ET.tostring(RESULT_ROOT, encoding='utf8').decode('utf8'))

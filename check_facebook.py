@@ -67,125 +67,128 @@ def check_facebookcontact(elementtype, xml_root):
     if int(ARGS.limit) > 0 and int(ARGS.limit) < len(xml_root.findall('relation')) + len(xml_root.findall('way')) + len(xml_root.findall('node')):
         bar_max = int(ARGS.limit)
 
-    with progressbar.ProgressBar(max_value=bar_max, redirect_stdout=True) as p_bar:
-        for element in xml_root.findall(elementtype):
-            element_changed = False
+    widgets = [Percentage(), ' ', Bar(), ' ', ETA(), ' ', AdaptiveETA()]
+    p_bar = progressbar.ProgressBar(widgets=widgets, maxval=bar_max)
+    p_bar.start()
+    for element in xml_root.findall(elementtype):
+        element_changed = False
 
-            # save file and exit if limit is reached
-            if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
-                with open(ARGS.export, 'w') as f:
-                    f.write(ET.tostring(xml_root, encoding='utf8').decode('utf8'))
-                break
+        # save file and exit if limit is reached
+        if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
+            with open(ARGS.export, 'w') as f:
+                f.write(ET.tostring(xml_root, encoding='utf8').decode('utf8'))
+            break
 
-            # iterate throug elements
-            for tag in element.findall('tag'):
+        # iterate throug elements
+        for tag in element.findall('tag'):
+            initial_url = ''
 
-                # if we have found a website-tag with facebook in the url we move it to the contact:facebook-tag
-                if tag.attrib['k'] == 'website' and tag.attrib['v'].find('facebook') >= 0:
-                    tag.attrib['k'] = 'contact:facebook'
+            # if we have found a website-tag with facebook in the url we move it to the contact:facebook-tag
+            if tag.attrib['k'] == 'website' and tag.attrib['v'].find('facebook') >= 0:
+                tag.attrib['k'] = 'contact:facebook'
+                element_changed = True
+
+            if tag.attrib['k'] == 'contact:facebook':
+                # save initial url-value to variable: initial_url
+                initial_url = tag.attrib['v']
+                # load initial url into variable for substitute-url
+                sub_url = initial_url
+
+                # apply-subdomain-replacement
+                for subdomain in list_subdomains2kill:
+                    sub_url = sub_url.replace(
+                        subdomain + '.facebook.com', 'www.facebook.com')
+
+                # fix: urls starting with //
+                sub_url = re.sub(r"^\/\/(www\.|)facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
+                # fix: urls starting with www.facebook* or facebook*
+                sub_url = re.sub(r"^(www\.|)facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
+                # fix: replace http(s)://facebook* by https://www.facebook.com
+                sub_url = re.sub(r"http(|s)\:\/\/facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
+
+                # fix: cut the category-part out of the url
+                sub_url = re.sub(r"^https\:\/\/(www\.|)facebook\.com\/pages\/category\/[0-9a-zA-Z-]+\/", "https://www.facebook.com/pages/", sub_url, 0)
+
+                # test: if url is a redirection find its final target and use this as substitute-url
+                if requests.get(sub_url).status_code != 200:
+                    test_url = re.sub(
+                        r"^https\:\/\/www\.facebook\.com\/pages\/", "https://www.facebook.com/", sub_url, 0)
+                    if requests.get(test_url).status_code == 200:
+                        sub_url = test_url
+
+                # if the url does not contain photo/media-parts we do not need any get parameters
+                if sub_url.find('profile.php') == -1 and sub_url.find('/media/set/') == -1 and sub_url.find('/photo/') == -1:
+                    sub_url = re.findall(r"^([^?]+)", sub_url)[0]
+
+
+                # if we got a new url so far, we tag this element as changed
+                if str(initial_url) != str(sub_url):
+                    # print(initial_url + ' > ' + sub_url)
+                    tag.attrib['v'] = sub_url
                     element_changed = True
 
-                if tag.attrib['k'] == 'contact:facebook':
-                    # save initial url-value to variable: current_url
-                    current_url = tag.attrib['v']
-                    # load initial url into variable for substitute-url
-                    sub_url = current_url
+                # sometimes we get redirected via the login-page. in this case we will have to html-decrypt the next-param and replay the get-param-removal
+                r = requests.get(tag.attrib['v'], headers=HEADERS)
+                if r.url != tag.attrib['v']:
+                    login_url = re.findall(
+                        r"https:\/\/www\.facebook\.com\/login\/\?next\=(.*)", r.url)
+                    if login_url:
+                        decoded_url = urllib.parse.unquote(login_url[0])
+                        if decoded_url.find('profile.php') == -1 and decoded_url.find('/media/set/') == -1 and decoded_url.find('/photo/') == -1:
+                            decoded_url = re.findall(
+                                r"^([^?]+)", decoded_url)[0]
+                        if initial_url != decoded_url:
+                            tag.attrib['v'] = decoded_url
 
-                    # apply-subdomain-replacement
-                    for subdomain in list_subdomains2kill:
-                        sub_url = sub_url.replace(
-                            subdomain + '.facebook.com', 'www.facebook.com')
+                    else:
+                        if initial_url != r.url:
+                            # if we can reach that url we take it as replacement otherwise remove it
+                            if r.status_code == 200:
+                                tag.attrib['v'] = r.url
+                            if r.status_code == 404:
+                                tag.attrib['v'] = ''
+                                # print(r.url + ' >> DELETED because of 404')
 
-                    # fix: urls starting with //
-                    sub_url = re.sub(r"^\/\/(www\.|)facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
-                    # fix: urls starting with www.facebook* or facebook*
-                    sub_url = re.sub(r"^(www\.|)facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
-                    # fix: replace http(s)://facebook* by https://www.facebook.com
-                    sub_url = re.sub(r"http(|s)\:\/\/facebook(\.com|\.de|\.pl)\/", "https://www.facebook.com/", sub_url, 0)
+                # kill all suffixes from url
+                for suffix in list_suffix2kill:
+                    if tag.attrib['v'].endswith('/' + suffix):
+                        tag.attrib['v'] = tag.attrib['v'][:-(len(suffix) + 1)]
+                    if tag.attrib['v'].endswith('/' + suffix + '/'):
+                        tag.attrib['v'] = tag.attrib['v'][:-(len(suffix) + 2)]
 
-                    # fix: cut the category-part out of the url
-                    sub_url = re.sub(r"^https\:\/\/(www\.|)facebook\.com\/pages\/category\/[0-9a-zA-Z-]+\/", "https://www.facebook.com/pages/", sub_url, 0)
+                # replay login-redirection fix
+                if tag.attrib['v'] != initial_url:
+                    # print(initial_url + ' >>> ' + tag.attrib['v'])
+                    if tag.attrib['v'].find('profile.php') == -1 and tag.attrib['v'].find('/media/set/') == -1 and tag.attrib['v'].find('/photo/') == -1 and re.findall(r"^([^?]+)", tag.attrib['v']):
+                        tag.attrib['v'] = re.findall(
+                            r"^([^?]+)", tag.attrib['v'])[0]
+                    if tag.attrib['v'] != '' and requests.get(tag.attrib['v'], headers=HEADERS).status_code == 404:
+                        tag.attrib['v'] = ''
+                    # print(initial_url + ' >> ' + tag.attrib['v'])
 
-                    # test: if url is a redirection find its final target and use this as substitute-url
-                    if requests.get(sub_url).status_code != 200:
-                        test_url = re.sub(
-                            r"^https\:\/\/www\.facebook\.com\/pages\/", "https://www.facebook.com/", sub_url, 0)
-                        if requests.get(test_url).status_code == 200:
-                            sub_url = test_url
+                sys.stdout.write('[' + str(LIMIT_COUNTER)+ '/' + str(bar_max) + '] ' + initial_url + "\n >>> " + tag.attrib['v'] + " \n")
+                p_bar.update(LIMIT_COUNTER)
 
-                    # if the url does not contain photo/media-parts we do not need any get parameters
-                    if sub_url.find('profile.php') == -1 and sub_url.find('/media/set/') == -1 and sub_url.find('/photo/') == -1:
-                        sub_url = re.findall(r"^([^?]+)", sub_url)[0]
-
-
-                    # if we got a new url so far, we tag this element as changed
-                    if str(current_url) != str(sub_url):
-                        print(current_url + ' > ' + sub_url)
-                        tag.attrib['v'] = sub_url
-                        element_changed = True
-
-                    # sometimes we get redirected via the login-page. in this case we will have to html-decrypt the next-param and replay the get-param-removal
-                    r = requests.get(tag.attrib['v'])
-                    if r.url != tag.attrib['v']:
-                        login_url = re.findall(
-                            r"https:\/\/www\.facebook\.com\/login\/\?next\=(.*)", r.url)
-                        if login_url:
-                            decoded_url = urllib.parse.unquote(login_url[0])
-                            if decoded_url.find('profile.php') == -1 and decoded_url.find('/media/set/') == -1 and decoded_url.find('/photo/') == -1:
-                                decoded_url = re.findall(
-                                    r"^([^?]+)", decoded_url)[0]
-                            if current_url != decoded_url:
-                                tag.attrib['v'] = decoded_url
-
-                        else:
-                            if current_url != r.url:
-                                # if we can reach that url we take it as replacement otherwise remove it
-                                if r.status_code == 200:
-                                    tag.attrib['v'] = r.url
-                                if r.status_code == 404:
-                                    tag.attrib['v'] = ''
-                                    print(r.url + ' >> DELETED because of 404')
-
-                    # kill all suffixes from url
-                    for suffix in list_suffix2kill:
-                        if tag.attrib['v'].endswith('/' + suffix):
-                            tag.attrib['v'] = tag.attrib['v'][:-(len(suffix) + 1)]
-                        if tag.attrib['v'].endswith('/' + suffix + '/'):
-                            tag.attrib['v'] = tag.attrib['v'][:-(len(suffix) + 2)]
-
-                    # replay login-redirection fix
-                    if tag.attrib['v'] != current_url:
-                        # print(current_url + ' >>> ' + tag.attrib['v'])
-                        if tag.attrib['v'].find('profile.php') == -1 and tag.attrib['v'].find('/media/set/') == -1 and tag.attrib['v'].find('/photo/') == -1 and re.findall(r"^([^?]+)", tag.attrib['v']):
-                            tag.attrib['v'] = re.findall(
-                                r"^([^?]+)", tag.attrib['v'])[0]
-                        if tag.attrib['v'] != '' and requests.get(tag.attrib['v']).status_code == 404:
-                            tag.attrib['v'] = ''                       
-                        print(current_url + ' >> ' + tag.attrib['v'])
-
-            if element_changed:
-                if LIMIT_COUNTER + 1 > int(ARGS.offset) or (LIMIT_COUNTER == 0 and int(ARGS.offset) == 0):
-                    # set modify-tag if element is in range
-                    element.attrib['action'] = 'modify'
-                    empty_tags = element.findall("tag[@v='']")
-                    if empty_tags:
-                        for empty_tag in empty_tags:
-                            element.remove(empty_tag)
-                    RESULT_ROOT.append(element)
-                LIMIT_COUNTER += 1
-                p_bar.update(LIMIT_COUNTER)                
+        if element_changed:
+            if LIMIT_COUNTER + 1 > int(ARGS.offset) or (LIMIT_COUNTER == 0 and int(ARGS.offset) == 0):
+                # set modify-tag if element is in range
+                element.attrib['action'] = 'modify'
+                empty_tags = element.findall("tag[@v='']")
+                if empty_tags:
+                    for empty_tag in empty_tags:
+                        element.remove(empty_tag)
+                RESULT_ROOT.append(element)
+            LIMIT_COUNTER += 1
+            if int(ARGS.limit) > 0 and LIMIT_COUNTER >= int(ARGS.limit):
+                p_bar.finish()
     # end
-
-print(str(len(XML_ROOT.findall('relation'))) + ' relations found.')
-if not ARGS.dryrun:
+if ARGS.dryrun:
+    print(str(len(XML_ROOT.findall('relation'))) + ' relations found.')
+    print(str(len(XML_ROOT.findall('way'))) + ' ways found.')
+    print(str(len(XML_ROOT.findall('node'))) + ' nodes found.')
+else:
     check_facebookcontact('relation', XML_ROOT)
-
-print(str(len(XML_ROOT.findall('way'))) + ' ways found.')
-if not ARGS.dryrun:
     check_facebookcontact('way', XML_ROOT)
-
-print(str(len(XML_ROOT.findall('node'))) + ' nodes found.')
-if not ARGS.dryrun:
     check_facebookcontact('node', XML_ROOT)
     with open(ARGS.export, 'w') as f:
         f.write(ET.tostring(RESULT_ROOT, encoding='utf8').decode('utf8'))
