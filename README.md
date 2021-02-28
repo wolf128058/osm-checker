@@ -24,6 +24,8 @@ But be careful(!) it does not save discussions.*
         - [key:website](https://wiki.openstreetmap.org/wiki/Key:website "key:website")
         - [Talk:Key:website](https://wiki.openstreetmap.org/wiki/Talk:Key:website "Talk:Key:website")
 
+## Queries
+There is a [collection of queries](OverpassTurboQueries.md) available, that helps you to find the usual things to fix. 
 
 ##  Dos and Don'ts 
 - check your results responsibly
