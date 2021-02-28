@@ -24,7 +24,6 @@ out meta qt;
 ```
 /*
   Search for website-tags that contain websites without scheme at the beginning
-  (the area to search in is your currently visible area)
 */
 
 [out:xml][timeout:120];
@@ -33,6 +32,25 @@ out meta qt;
   node["website"~"."]["website"!~"^http.*"]({{bbox}});
   way["website"~"."]["website"!~"^http.*"]({{bbox}});
   relation["website"~"."]["website"!~"^http.*"]({{bbox}});
+);
+
+// print results
+out meta;
+>;
+out meta qt;
+```
+
+
+```
+/*
+  Search for website-tags that contain tracking-parameters
+*/
+[out:xml][timeout:120];
+// gather results
+(
+  node["website"~"[?#&](mc_id|utm_\\w+|fbclid|gclid|campaign_ref|gclsrc|dclid|WT.tsrc|wt.tsrc|zanpid|yclid|igshid)="]({{bbox}});
+  way["website"~"[?#&](mc_id|utm_\\w+|fbclid|gclid|campaign_ref|gclsrc|dclid|WT.tsrc|wt.tsrc|zanpid|yclid|igshid)="]({{bbox}});
+  relation["website"~"[?#&](mc_id|utm_\\w+|fbclid|gclid|campaign_ref|gclsrc|dclid|WT.tsrc|wt.tsrc|zanpid|yclid|igshid)="]({{bbox}});
 );
 
 // print results
